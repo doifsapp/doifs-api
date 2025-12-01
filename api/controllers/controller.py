@@ -1,7 +1,20 @@
 from app.db.dashboard_dao import DashboardDAO
-
+from app.db.publication_dao import PublicationDAO
 
 class PublicationController:
+    def __init__(self, publication_dao: PublicationDAO):
+        self.publication = publication_dao
+        
+    async def get_publication_controller(self, publication):
+        #retorna publications
+        publications, count = await self.publication.get_publication(publication)
+        print("Controller pubs >>")
+        return {
+            "publications": publications,
+            "count": count
+        }
+
+class SummaryController:
     def __init__(self, dashboard_dao: DashboardDAO):
         self.dash = dashboard_dao
     

@@ -1,73 +1,86 @@
-# app/db/schema.py
+import re
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
 from app.db.connection_db import Connection
 import asyncio
 from app.models.publication import Publication
+from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorCollection
+
+COLLETION_NAME = os.getenv("COLLETION_NAME")
 
 class PublicationDAO:
-    def __init__(self):
-        connection = Connection()
-        self.client = connection.connection()
-        self.db = self.client['publications_dou']
+    def __init__(self, db: AsyncIOMotorDatabase):
+        self.colletion: AsyncIOMotorCollection = db[COLLETION_NAME]
 
-    async def get_publication(self, publication):
+    async def get_publication(self, publication: Publication):
         print("Buscando...")
         
-        #publication = Publicaton("REINALDO RAFAEL DE ALBUQUERQUE PEREIRA JUNIOR", "IFAL", type=None, year=None)
+        match_query = {}
         
-        filter = {
-            **({"content": {"$regex": publication.name , "$options": "i"}} if publication.name else {}),
-            **({"type": publication.type} if publication.type else {}),
-            **({"year": publication.year} if publication.year else {})
-        }
-        if not publication.institute:
-            return {"erro": "Instituto é obrigatório"}
+        def is_valid_param(param):
+            return param is not None and param != ""
         
-        colletion = self.db.list_collections()
-        print("SAIDA >>>> ", colletion)
+        if  is_valid_param(publication.type):
+            match_query["type"] = publication.type
         
-        collection = self.db[publication.institute]
-        cursor = collection.find(filter, {"_id": 0, "institute": 1, "type": 1, "concierge": 1, "date": 1, "url": 1})
-        res = await cursor.to_list(length=100)
+        if is_valid_param(publication.year):
+            try:
+                match_query["year"] = int(publication.year)
+            except (ValueError, TypeError):
+                print(f"Ano inválido fornecido: {publication.year}")
+                
+        if is_valid_param(publication.institute):
+                match_query["institute"] = publication.institute
+                
+        if is_valid_param(publication.name):
+                search_pattern = re.escape(publication.name)
+                match_query["content"] = {
+                    "$regex": search_pattern,
+                    "$options": "i"
+                }
+                
+        total_count = await self.colletion.count_documents(match_query)
         
-        #print(publication.name, publication.institute, publication.type, publication.year)
+        cursor = None
+                
+        if not match_query:
+            print("Nenhum parâmetro de busca fornecido. Retornando os 10 mais recentes.") 
+            cursor = self.colletion.find({}).sort("date", -1).limit(10)
+            
+        else:   
+            pipeline = [
+                
+                {
+                    "$match": match_query
+                },
+                
+                {
+                    "$sort": {"date": -1}
+                },
+                
+                {
+                    "$project": {
+                        "_id": 0,
+                        "institute": 1,
+                        "concierge": 1,
+                        "type": 1,
+                        "date": 1,
+                        "url": 1
+                    }
+                }
+            ]
+            cursor = self.colletion.aggregate(pipeline)
         
-        print("Achei!!")
-        print(res)
-        self.close()
-        return res
-
-    def close(self):
-        self.client.close()
-
-# execução
-
-
-
-
-"""
-if __name__ == "__main__":
-    test = PublicationDAO()
-    asyncio.run(test.list())
-
-
-
-_id: ObjectId('66bc177782c5dedf846094b4')
-year: 2018
-months: Object
-    janeiro: Array (24)
-        0: Object
-            publication: Object
-                type: "Nomeação"
-                orgao: "Reitoria"
-                content: "O reitor do Instituto absc..."
-                concierge: "Portaria Nº 23, DE 4 JANEIRO DE 2018"
-                date: "08/01/2018"
-                responsible: "Carlos GUEDES DE LACERDA"
-                url: "https://www.in.gov.br/web/dou/-/portaria-n-23-de-4-de-janeiro-de-2018-1652192"
-        1: Object >
-        2: Object >
-        .
-        .
-        .
-
-"""
+        res = await cursor.to_list(None)
+        
+        for doc in res:
+            if "_id" in doc:
+                doc["_id"] = str(doc["_id"])
+                
+        if not match_query:
+            total_count = len(res) 
+                
+        return res, total_count
+        

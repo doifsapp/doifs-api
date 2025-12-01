@@ -1,21 +1,28 @@
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from typing import AsyncGenerator, Optional
 from app.models.publication import Publication
 from app.db.publication_dao import PublicationDAO
-from app.db.dashboard_dao import DashboardDAO, DB_NAME
+from app.db.dashboard_dao import DashboardDAO
 
 #Importações de config do database
 from app.db.connection_db import mongo_client_manager
 
 from api.controllers.controller import (
     PublicationController,
+    SummaryController,
     PeriodicController,
     PersonnelController,
     InstituteController,
     RegionController,
     StatesController
 )
+
+DB_NAME = os.getenv("DB_NAME")
 
 #Função declarativa de tempo de vida
 @asynccontextmanager
@@ -28,10 +35,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await mongo_client.admin.command('ping')
         db = mongo_client[DB_NAME]
         
+        publication_dao = PublicationDAO(db)
         dashboard_dao = DashboardDAO(db)
         
         # 2. Inicializa TODOS os Controllers, INJETANDO o DAO
-        app.state.publication_controller = PublicationController(dashboard_dao)
+        app.state.publication_controller = PublicationController(publication_dao)
+        app.state.summary_controller = SummaryController(dashboard_dao)
         app.state.periodic_controller = PeriodicController(dashboard_dao)
         app.state.personnel_controller = PersonnelController(dashboard_dao)
         app.state.institute_controller = InstituteController(dashboard_dao)
@@ -44,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         print(f"Erro crítico no startup do DB: ({e}). A API pode estar indisponível")
         app.state.db_client = None
-        app.state.publication_controller = None
+        app.state.summary_controller = None
     yield
     
     #shutdown
@@ -71,15 +80,16 @@ async def get_publication(
     type: Optional[str] = Query(None),
     year: Optional[int] = Query(None)
 ):
+    print("Rota de busca default >>>>>>")
     publication = Publication(name, institute, type, year)
-    dao = PublicationDAO()
-    result = await dao.get_publication(publication)
-    return {"publications": result}
+    controller = get_controller('publication_controller')
+    print(f'Objeto pub >>> {publication.name, publication.type, publication.institute, publication.year}')
+    return await controller.get_publication_controller(publication)
 
 
 @app.get("/get-totals")
 async def get_totals():
-    controller = get_controller('publication_controller')
+    controller = get_controller('summary_controller')
     return await controller.get_totals_controller()
 
 @app.get("/periodic-types")
