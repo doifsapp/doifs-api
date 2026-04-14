@@ -5,6 +5,7 @@ load_dotenv()
 
 from app.db.connection_db import Connection
 import asyncio
+import unicodedata
 from app.models.publication import Publication
 from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorCollection
 
@@ -31,11 +32,12 @@ class PublicationDAO:
             except (ValueError, TypeError):
                 print(f"Ano inválido fornecido: {publication.year}")
                 
-        if is_valid_param(publication.institute):
-                match_query["institute"] = publication.institute
+        if is_valid_param(publication.acronym):
+                match_query["acronym"] = publication.acronym
                 
         if is_valid_param(publication.name):
-                search_pattern = re.escape(publication.name)
+                search_pattern_ = await self._normalize_text(publication.name)
+                search_pattern = re.escape(search_pattern_)
                 match_query["content"] = {
                     "$regex": search_pattern,
                     "$options": "i"
@@ -63,9 +65,11 @@ class PublicationDAO:
                 {
                     "$project": {
                         "_id": 0,
+                        "acronym": 1,
                         "institute": 1,
-                        "concierge": 1,
+                        "ordinance": 1,
                         "type": 1,
+                        "tags": 1,
                         "date": 1,
                         "url": 1
                     }
@@ -83,4 +87,27 @@ class PublicationDAO:
             total_count = len(res) 
                 
         return res, total_count
+
+    async def _normalize_text(self, text: str) -> str:
+        """
+        Normaliza o texto: 
+        1. Converte para minúsculas
+        2. Remove acentos e diacríticos
+        3. Remove espaços extras
+        """
+        if not text:
+            return ""
         
+        # Converter para minúsculas
+        text = text.lower()
+        
+        # Decompor caracteres acentuados (ex: 'é' vira 'e' + '´')
+        nfkd_form = unicodedata.normalize('NFKD', text)
+        
+        # Filtrar apenas caracteres que não são marcas de acentuação (Mn = Mark, Nonspacing)
+        text_normalized = "".join([char for char in nfkd_form if unicodedata.category(char) != 'Mn'])
+        
+        # Remover espaços em branco extras e quebras de linha
+        text_normalized = " ".join(text_normalized.split())
+        return text_normalized
+            
