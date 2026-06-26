@@ -1,3 +1,4 @@
+import re
 from dotenv import load_dotenv
 import os
 load_dotenv()
@@ -29,7 +30,10 @@ class PublicationDAO:
                 filters["year"] = int(publication.year)
             except (ValueError, TypeError):
                 print(f"Ano inválido fornecido: {publication.year}")
-                
+        
+        if is_valid_param(publication.number):
+            number = self.clean_and_convert_number(publication.number)
+            filters["number"] = number    
         
                 
         pipeline = []
@@ -103,3 +107,9 @@ class PublicationDAO:
             total_count = len(res)
 
         return res, total_count
+    
+    def clean_and_convert_number(number) -> str:
+        content = str(number)
+        result = re.sub(r'[^\d]', '', content)
+        
+        return result
