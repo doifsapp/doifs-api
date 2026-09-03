@@ -176,7 +176,7 @@ class DashboardDAO:
         """
         # 1. Preparação do intervalo de datas
         days = 90
-        end_date = "2026-06-23"
+        end_date = datetime.now()
         start_date = end_date - timedelta(days=days - 1)
         
         # Strings para o filtro do MongoDB (formato YYYY-MM-DD)
